@@ -1,159 +1,141 @@
-# 🐙 Tako — Visual Workspace for AI Coding Agents
+# Tako
 
-**Tako** is a desktop application for macOS that lets you arrange, connect, and run multiple AI coding agents on an interactive visual canvas. 
+Tako is a macOS desktop application that lets you compose, connect, and execute multi-agent AI workflows on an interactive canvas.
 
-Instead of juggling multiple terminal windows and copy-pasting code between tools, you can put agents like **Claude Code**, **Codex**, **ChatGPT**, **Antigravity**, **Gemini**, and **Pi** on a board, connect them together, and let them pass work to each other safely.
+Instead of multiplexing terminal tabs or manually copying diffs and context between CLI tools, Tako runs real agent sessions (`claude`, `codex`, `agy`, `gemini`, `pi`, or raw shells) inside isolated node harnesses and routes context across explicit graph connections.
 
----
-
-## 💡 What Tako Does
-
-Think of Tako as a visual whiteboard for your AI agents:
-1. **Add your agents:** Place your favorite coding agents on the canvas.
-2. **Give them tasks:** Write specific instructions or prompts for each agent.
-3. **Connect the dots:** Draw lines between agents to define who passes work to whom.
-4. **Hit Run:** Watch the workflow execute step-by-step or in parallel, streaming terminal output in real time.
-5. **Review & Inspect:** Check outputs, review diffs, explore execution history, or retry failed steps with one click.
-
----
-
-## 🏗️ How It Works (App Architecture)
-
-Tako is built with **Electron**, **React**, **TypeScript**, and **SQLite**. It runs 100% locally on your machine.
-
-Here is how the parts talk to each other:
-
-```text
-┌────────────────────────────────────────────────────────────────────────┐
-│                        TAKO DESKTOP APP                                │
-├────────────────────────────────────────────────────────────────────────┤
-│                                                                        │
-│   🎨 RENDERER (User Interface)                                         │
-│   ┌────────────────────────────────────────────────────────────────┐   │
-│   │  Visual Canvas (React Flow)                                     │   │
-│   │   • Agent Cards (Claude, Codex, Antigravity, Terminal, Note)   │   │
-│   │   • Task & Prompt Drawers                                      │   │
-│   │   • Live Terminal Windows (Xterm.js)                           │   │
-│   │   • Natural Command Bar & Voice Control                        │   │
-│   │   • Live Activity Timeline & Run History Viewer                │   │
-│   └────────────────────────────────┬───────────────────────────────┘   │
-│                                    │                                   │
-│                        ⚡ Typed Electron IPC Bridge                    │
-│                                    │                                   │
-│   ⚙️ MAIN PROCESS (Backend Engine)                                      │
-│   ┌────────────────────────────────┴───────────────────────────────┐   │
-│   │  Workflow Runtime & Graph Engine                               │   │
-│   │   • Schedules node execution in correct topological order      │   │
-│   │   • Coordinates handoffs between connected agents              │   │
-│   │   • Manages concurrency, retries, and cancellation             │   │
-│   │                                                                │   │
-│   │  Adapter Registry & Process Runners                            │   │
-│   │   • Detects installed CLIs on your PATH                        │   │
-│   │   • Drives real pseudo-terminals (PTY) and session clients     │   │
-│   │                                                                │   │
-│   │  SQLite Persistence (better-sqlite3)                           │   │
-│   │   • Workflows, nodes, connections, configs, and run history    │   │
-│   └────────────────────────────────┬───────────────────────────────┘   │
-│                                    │                                   │
-└────────────────────────────────────┼───────────────────────────────────┘
-                                     │
-                                     ▼
-                ┌────────────────────────────────────────┐
-                │   YOUR INSTALLED LOCAL CLI AGENTS      │
-                │   • Claude Code (`claude`)             │
-                │   • Codex (`codex`)                    │
-                │   • Antigravity (`agy`)                │
-                │   • Gemini (`gemini`)                  │
-                │   • Pi (`pi`)                          │
-                │   • System Terminal (`bash`/`zsh`)     │
-                └────────────────────────────────────────┘
+```
+┌────────────────────────────────────────────────────────┐
+│                   React Flow Canvas                    │
+│   [Claude Code] ────(Handoff)────► [Codex Reviewer]    │
+│         │                                 │            │
+│     (Handoff)                             │            │
+│         ▼                                 ▼            │
+│   [Terminal Test] ◄───────────────────────┘            │
+└───────────────────────────┬────────────────────────────┘
+                            │
+                  Typed Electron IPC
+                            │
+┌───────────────────────────▼────────────────────────────┐
+│                    Workflow Runtime                    │
+│  • Topological DAG scheduler & concurrency manager     │
+│  • Step handoff queue with review gate / auto-approve  │
+│  • Local SQLite database (runs, events, snapshots)     │
+└───────────────────────────┬────────────────────────────┘
+                            │
+               PTY & AppServer Adapters
+                            │
+┌───────────────────────────▼────────────────────────────┐
+│                  Local CLI Processes                   │
+│   claude-code | codex | agy | gemini | pi | bash/zsh   │
+└────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## ✨ Features Built Up to Now
+## Why Tako?
 
-* **🎨 Interactive Visual Canvas**: Drag, drop, pan, zoom, connect, and organize your AI workflow easily.
-* **🔌 Real CLI Integration**: Runs your actual local CLI tools directly on your computer — no fake mockups or downgraded APIs.
-* **🔍 Dynamic Agent Discovery**: Automatically detects which CLI tools are installed on your machine (`PATH`) and shows only what's ready to use.
-* **📝 In-Node Task & Prompt Editor**: Write and edit instructions right inside each node. Prompts are saved automatically with your workflow.
-* **⚡ Workflow Runtime Engine**: Runs full graphs of agents sequentially or in parallel. Passes output from one agent to the next automatically.
-* **📺 Live Terminal Streaming**: See live terminal logs, color highlights, and progress as agents work.
-* **📜 Execution History & Inspection**: Browse past runs, review outputs, check durations, and view handoff packets in read-only mode without messing up your canvas.
-* **⏱️ Live Activity Timeline**: Real-time event log tracking every workflow start, node finish, handoff, or error.
-* **🔁 One-Click Retry**: If an agent fails (like a network timeout), click `Retry` to resume from that exact step without re-running finished upstream work.
-* **🛡️ Secret & Credential Safety**: Automatically masks API keys (OpenAI `sk-***`, Google `AIza***`, GitHub tokens, Bearer headers) so they never leak into logs or UI screenshots.
-* **💬 Natural Command Bar & Voice**: Type or speak everyday commands like `"run workflow"`, `"retry Codex"`, `"duplicate this"`, or `"fit view"`.
-* **💾 Reliable Local Persistence**: Everything is saved to a local SQLite database on your Mac. If your computer reboots or crashes, your work and history stay safe.
+1. **Wraps Real CLIs (No Toy API Re-implementations)**
+   Tako doesn't make simplified OpenAI/Anthropic API calls pretending to be agents. It launches the actual binaries installed on your `PATH` via pseudo-terminals (`node-pty`) or native app-servers, preserving tools, MCP configs, permissions, and shell context.
+
+2. **Deterministic Context Isolation**
+   Agents only receive context across edges you draw on the canvas. If two nodes aren't connected, they share zero context. Every handoff payload can be inspected and edited before delivery, or set to auto-approve.
+
+3. **Local-First & Offline-Safe**
+   All graph topology, node configs, terminal buffers, and execution histories persist to a local SQLite database (`better-sqlite3`). No cloud backend, telemetry, or remote storage required.
+
+4. **Secret Sanitization**
+   Output streams and error events are scrubbed before reaching UI renderers or SQLite event logs to prevent leaking API keys (`sk-*`, `AIza*`, `ghp_*`, `AKIA*`, Bearer tokens).
 
 ---
 
-## 🚀 Quick Start
+## Architecture & Internals
+
+Tako is structured into three main layers:
+
+* **Renderer (`src/renderer`)**: Built with React, React Flow, and Xterm.js. Handles whiteboard interaction, viewport controls, terminal rendering, node task prompt drawers, live execution states, and the activity timeline.
+* **Electron Preload & Typed IPC (`src/preload`, `src/main/ipc`)**: Secure context bridge exposing strictly typed asynchronous operations (`runtime:start`, `runtime:cancel`, `runtime:retry`, `workflows:*`, `nodes:*`) and real-time runtime event streaming (`runtime:event`).
+* **Main Runtime Engine (`src/main/runtime`)**: Headless graph execution engine. Resolves topological dependencies, coordinates concurrent branches, manages handoff delivery queues, detects process turn completion, and writes audit trails to SQLite.
+
+---
+
+## Supported CLI Adapters
+
+Tako dynamically checks your system `PATH` at runtime and enables adapters only when the binary is installed:
+
+| Agent | CLI Executable | Adapter Type | Features |
+|---|---|---|---|
+| **Claude Code** | `claude` | PTY / Terminal | Live terminal streaming, session resume, cost tracking |
+| **Codex** | `codex` | AppServer / Terminal | JSON-RPC thread integration, real-time delta stream |
+| **Antigravity** | `agy` | PTY / Terminal | Native star theme, full CLI tool support |
+| **Gemini CLI** | `gemini` | PTY / Terminal | Official Google Gemini CLI wrapper |
+| **Pi** | `pi` | PTY / Terminal | Subagent runner, transcript tailing |
+| **Kiro / Kimi** | `kiro` / `kimi` | PTY / Terminal | PTY terminal streaming |
+| **Terminal** | `bash` / `zsh` | Login Shell | Arbitrary shell scripts, build pipelines, test runners |
+| **Note** | — | Passive | Markdown documentation & scratchpad |
+
+---
+
+## Getting Started
 
 ### Prerequisites
-* **macOS** (Apple Silicon or Intel)
-* **[Bun](https://bun.sh/)** installed (`curl -fsSL https://bun.sh/install | bash`)
-* Any AI CLI agents you want to use (e.g. `claude`, `codex`, `agy`, `gemini`, `pi`)
 
-### Installation & Running
+* macOS (Apple Silicon or Intel)
+* [Bun](https://bun.sh) (v1.1+ recommended)
+* At least one supported AI CLI tool installed (e.g. `claude`, `codex`, `gemini`)
+
+### Development Setup
 
 ```bash
-# 1. Clone the repository
+# Clone the repository
 git clone https://github.com/your-username/tako.git
 cd tako
 
-# 2. Install dependencies
+# Install dependencies
 bun install
 
-# 3. Start the application in development mode
+# Start the desktop app in dev mode (Vite + Electron)
 bun run start
 ```
 
-### Testing & Verification
+### Scripts
 
 ```bash
-# Run all unit and integration tests (550+ tests)
+# Run test suite (550+ unit and integration tests)
 bun test
 
-# Check TypeScript types
+# Typecheck whole codebase
 bun run typecheck
 
-# Package the app for macOS
+# Package the application for macOS (arm64 / x64)
 bun run package
 ```
 
 ---
 
-## 📁 Project Structure
+## Repository Layout
 
 ```text
 tako/
 ├── src/
-│   ├── main/                 # Electron main process (Backend)
-│   │   ├── adapters/         # Adapters driving real CLI processes (Claude, Codex, etc.)
-│   │   ├── ipc/              # Typed IPC handlers connecting frontend to backend
-│   │   ├── runtime/          # Workflow runtime graph engine and execution scheduler
-│   │   └── store/            # SQLite database repositories (workflows, runs, logs)
+│   ├── main/
+│   │   ├── adapters/         # CLI runners (PTY wrappers, session clients)
+│   │   ├── graph/            # Connection routing and cycle detection
+│   │   ├── handoff-engine/   # Handoff queues, review gates, payload payloads
+│   │   ├── ipc/              # Typed IPC handlers for Electron
+│   │   ├── node-manager/     # Process lifecycle and turn completion heuristics
+│   │   ├── runtime/          # Headless DAG execution scheduler and runner
+│   │   └── store/            # SQLite schemas and repositories
 │   ├── preload/              # Secure Electron preload bridge
-│   ├── renderer/             # Frontend UI (React + React Flow)
-│   │   └── canvas/           # Canvas components, node cards, toolbars, timeline, history
-│   └── shared/               # Shared types, validation rules, graph utilities, secret sanitizer
-├── docs/                     # Architecture designs, decision records (ADRs), and PRDs
-├── CONTEXT.md                # Project terminology dictionary and concepts glossary
-└── package.json              # App configuration and scripts
+│   ├── renderer/             # React Flow whiteboard, node components, CSS
+│   └── shared/               # Shared domain types, sanitizers, graph algorithms
+├── docs/                     # Architecture Decision Records (ADRs) and specs
+├── CONTEXT.md                # Project glossary and core domain concepts
+└── package.json
 ```
 
 ---
 
-## ❓ Frequently Asked Questions
+## License
 
-### What is the `CONTEXT.md` file?
-`CONTEXT.md` is our **project dictionary**. It defines the exact terms we use across the codebase (like what a *Node*, *Connection*, *Handoff*, *Payload*, or *Run* means). It helps all developers, contributors, and AI assistants use the exact same terminology and mental model.
-
-### Should `CONTEXT.md` be added to Git?
-**Yes, absolutely!** Keep `CONTEXT.md` in Git. It is important documentation for the project, contains zero secrets, and ensures everyone working on Tako understands the core concepts.
-
----
-
-## 📄 License
-MIT License. Built with ❤️ for the AI developer community.
+MIT
