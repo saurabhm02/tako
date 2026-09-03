@@ -1,0 +1,48 @@
+{
+  "name": "tako",
+  "productName": "Tako",
+  "version": "0.1.0",
+  "description": "A desktop canvas for orchestrating AI agents with explicit connections and human approval on every handoff.",
+  "private": true,
+  "main": ".vite/build/main.js",
+  "scripts": {
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "^7.6.1",
+    "@electron-forge/maker-zip": "^7.6.1",
+    "@electron-forge/plugin-vite": "^7.6.1",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/bun": "^1.4.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.3.1",
+    "typescript": "^5.7.3",
+    "vite": "^5.4.14"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
+    "@deepgram/sdk": "^5.9.0",
+    "@google/generative-ai": "^0.24.1",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "@xyflow/react": "^12.0.0",
+    "better-sqlite3": "^11.8.1",
+    "lucide-react": "^1.33.0",
+    "node-pty": "^1.0.0",
+    "openai": "^7.8.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "trustedDependencies": [
+    "electron",
+    "better-sqlite3",
+    "esbuild",
+    "node-pty"
+  ]
+}
