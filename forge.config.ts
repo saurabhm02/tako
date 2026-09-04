@@ -1,19 +1,57 @@
 import type { ForgeConfig } from "@electron-forge/shared-types";
 import { MakerZIP } from "@electron-forge/maker-zip";
+import { MakerDMG } from "@electron-forge/maker-dmg";
 import { VitePlugin } from "@electron-forge/plugin-vite";
+import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
+import fs from "node:fs";
+import path from "node:path";
 
 const config: ForgeConfig = {
   packagerConfig: {
     name: "Tako",
-    asar: true,
-    // ponytail: packaged as a raw .png — electron-packager wants a real
-    // .icns for a signed macOS build; generate one (`iconutil`/`sips`) before
-    // shipping a distributable. Fine for `bun run start` dev builds as-is.
-    icon: "assets/icon.png",
+    asar: {
+      unpack: "*.{node,dylib,so}",
+    },
+    icon: "assets/icon.icns",
   },
-  rebuildConfig: {},
-  makers: [new MakerZIP({}, ["darwin"])],
+  hooks: {
+    packageAfterCopy: async (_forgeConfig, buildPath) => {
+      const nativeModules = ["better-sqlite3", "node-pty", "bindings", "file-uri-to-path", "prebuild-install"];
+      const targetNodeModules = path.join(buildPath, "node_modules");
+      fs.mkdirSync(targetNodeModules, { recursive: true });
+      for (const mod of nativeModules) {
+        const srcPath = path.join(process.cwd(), "node_modules", mod);
+        const destPath = path.join(targetNodeModules, mod);
+        if (fs.existsSync(srcPath)) {
+          fs.cpSync(srcPath, destPath, { recursive: true, dereference: true });
+        }
+      }
+    },
+  },
+  rebuildConfig: {
+    onlyModules: ["better-sqlite3", "node-pty"],
+  },
+  makers: [
+    new MakerZIP({}, ["darwin"]),
+    new MakerDMG(
+      {
+        background: "assets/dmg-background.png",
+        icon: "assets/icon.icns",
+        iconSize: 128,
+        format: "ULFO",
+        window: {
+          size: { width: 660, height: 400 },
+        },
+        contents: (opts) => [
+          { x: 180, y: 170, type: "file", path: opts.appPath },
+          { x: 480, y: 170, type: "link", path: "/Applications" },
+        ],
+      },
+      ["darwin"],
+    ),
+  ],
   plugins: [
+    new AutoUnpackNativesPlugin({}),
     new VitePlugin({
       build: [
         {

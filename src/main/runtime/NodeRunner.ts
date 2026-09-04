@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { createAdapter, getAdapterManifest } from "../adapters/registry";
 import type { Adapter, AdapterError } from "../adapters/Adapter";
 import { stripAnsi } from "../../shared/ansi";
+import { prepareExecution, parseStructuredOutput, type HarnessDefinition } from "../../shared/harness";
 import type { NodeInput, NodeOutput, NodeRecord, RuntimeErrorDetails } from "../../shared/types";
 import type { AdapterFactoryFn, INodeRunner, NodeRunnerContext } from "./types";
 
@@ -122,6 +123,61 @@ export class NodeRunner implements INodeRunner {
 
     this.activeAdapters.set(node.id, adapter);
 
+    // 6. Check for Role / Harness definition and prepare input
+    const roleId = node.roleId ?? (typeof node.config?.roleId === "string" ? node.config.roleId : null);
+    const hasRoleOrHarness = Boolean(roleId || node.config?.harness || node.config?.systemInstructions);
+
+    let preparedText = "";
+    let preparedConfig: ReturnType<typeof prepareExecution> | null = null;
+
+    if (hasRoleOrHarness) {
+      const harnessDef: HarnessDefinition = {
+        roleId: roleId ?? undefined,
+        systemInstructions:
+          typeof node.config?.systemInstructions === "string" ? node.config.systemInstructions : undefined,
+        taskInstructions:
+          typeof node.config?.taskPrompt === "string"
+            ? node.config.taskPrompt
+            : typeof node.config?.prompt === "string"
+              ? node.config.prompt
+              : undefined,
+        acceptanceCriteria: Array.isArray(node.config?.acceptanceCriteria)
+          ? (node.config.acceptanceCriteria as string[])
+          : undefined,
+        outputSchema: (node.config?.outputSchema as Record<string, unknown>) ?? undefined,
+      };
+      preparedConfig = prepareExecution(harnessDef, input, { workingDirectory });
+      preparedText = preparedConfig.promptText;
+    } else {
+      preparedText = prepareInputText(input);
+    }
+
+    const buildNodeOutput = (finalOutputText: string): NodeOutput => {
+      let metadata: Record<string, unknown> | undefined;
+      if (preparedConfig) {
+        const structuredOutput = preparedConfig.outputSchema
+          ? parseStructuredOutput(finalOutputText, preparedConfig.outputSchema)
+          : null;
+        metadata = {
+          ...(preparedConfig.metadata ?? {}),
+          ...(structuredOutput ? { structuredOutput } : {}),
+          ...(roleId ? { roleId } : {}),
+        };
+      } else if (node.config && Object.keys(node.config).length > 0) {
+        metadata = { ...node.config };
+      }
+
+      return {
+        outputText: finalOutputText,
+        sessionRef: adapter.getSessionRef?.() ?? null,
+        usage:
+          adapter.getUsage() === "unknown"
+            ? undefined
+            : (adapter.getUsage() as { tokensOrUnits?: number; dollarCost?: number }),
+        metadata,
+      };
+    };
+
     let outputBuffer = "";
     let turnBuffer = "";
     let unsubs: Array<() => void> = [];
@@ -167,11 +223,7 @@ export class NodeRunner implements INodeRunner {
               isFinished = true;
               const finalOutput = adapter.getFinalOutput?.() ?? stripAnsi(turnBuffer);
               if (finalOutput && finalOutput.trim().length > 0) {
-                resolve({
-                  outputText: finalOutput,
-                  sessionRef: adapter.getSessionRef?.() ?? null,
-                  usage: adapter.getUsage() === "unknown" ? undefined : (adapter.getUsage() as { tokensOrUnits?: number; dollarCost?: number }),
-                });
+                resolve(buildNodeOutput(finalOutput));
               } else {
                 reject({
                   code: "PROCESS_EXITED_UNEXPECTEDLY",
@@ -191,11 +243,7 @@ export class NodeRunner implements INodeRunner {
             if (!isFinished) {
               isFinished = true;
               const finalOutput = adapter.getFinalOutput?.() ?? stripAnsi(turnBuffer);
-              resolve({
-                outputText: finalOutput,
-                sessionRef: adapter.getSessionRef?.() ?? null,
-                usage: adapter.getUsage() === "unknown" ? undefined : (adapter.getUsage() as { tokensOrUnits?: number; dollarCost?: number }),
-              });
+              resolve(buildNodeOutput(finalOutput));
             }
           });
           unsubs.push(unsubCompletion);
@@ -218,10 +266,9 @@ export class NodeRunner implements INodeRunner {
         }
       });
 
-      // Prepare input and send to adapter
-      const inputText = prepareInputText(input);
-      if (inputText.length > 0) {
-        await adapter.send(inputText.endsWith("\n") || inputText.endsWith("\r") ? inputText : `${inputText}\n`);
+      // Send prepared text to adapter
+      if (preparedText.length > 0) {
+        await adapter.send(preparedText.endsWith("\n") || preparedText.endsWith("\r") ? preparedText : `${preparedText}\n`);
       }
 
       // If adapter does not implement completion signals (like synchronous or immediate mock), check if already done

