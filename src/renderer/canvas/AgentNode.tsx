@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Handle, NodeResizer, NodeToolbar, Position } from "@xyflow/react";
 import {
   AlertTriangle,
+  Briefcase,
   CheckCircle2,
   ChevronDown,
   Copy,
@@ -24,6 +25,7 @@ import {
   type AgentNodeData,
   type AgentType,
 } from "./types";
+import { getRoleDefinition, listRoleDefinitions } from "../../shared/roles";
 import type { AdapterError, AgentProfile, CostTotals, NodeRuntimeState, NodeStatus } from "../../shared/types";
 import { AgentTerminal } from "./AgentTerminal";
 import { ChatConversation } from "./ChatConversation";
@@ -54,6 +56,7 @@ interface AgentNodeProps {
   onSetTaskPrompt?: (nodeId: string, prompt: string) => void;
   onSetWorkingDirectory: (nodeId: string, directory: string) => void;
   onSetProfile: (nodeId: string, profileId: string) => void;
+  onSetRole?: (nodeId: string, roleId: string | null) => void;
   onReviewHandoffs: () => void;
   // Only ever called with a real, non-empty code change summary — the
   // banner below doesn't render at all otherwise, so this is never
@@ -88,6 +91,7 @@ export function AgentNode({
   onSetTaskPrompt,
   onSetWorkingDirectory,
   onSetProfile,
+  onSetRole,
   onReviewHandoffs,
   onViewCodeChanges,
 }: AgentNodeProps) {
@@ -95,6 +99,9 @@ export function AgentNode({
   const title = nodeDisplayName(data.name, data.agentType);
   const AgentIcon = AGENT_ICONS[data.agentType as AgentType] ?? AGENT_ICONS.bash;
   const accentColor = AGENT_ACCENT_COLORS[data.agentType as AgentType] ?? "#a5b4fc";
+
+  const roleId = data.roleId ?? (typeof data.config?.roleId === "string" ? data.config.roleId : null);
+  const roleDef = roleId ? getRoleDefinition(roleId) : null;
 
   const initialPrompt = typeof data.config?.taskPrompt === "string"
     ? data.config.taskPrompt
@@ -148,15 +155,19 @@ export function AgentNode({
   // ever fires; `isVisible` below also stays true while it's open as a
   // second guard against losing selection for any other reason.
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showRoleMenu, setShowRoleMenu] = useState(false);
 
   useEffect(() => {
-    if (!showProfileMenu) return;
+    if (!showProfileMenu && !showRoleMenu) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setShowProfileMenu(false);
+      if (e.key === "Escape") {
+        setShowProfileMenu(false);
+        setShowRoleMenu(false);
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [showProfileMenu]);
+  }, [showProfileMenu, showRoleMenu]);
 
   const statusAccent =
     status === "error" || status === "failed"
@@ -238,6 +249,47 @@ export function AgentNode({
             <span>Duplicate</span>
           </button>
         )}
+        {onSetRole && (
+          <div className="agent-node__profile-picker">
+            <button
+              type="button"
+              className={`agent-node__toolbar-btn${roleDef ? " agent-node__toolbar-btn--active" : ""}`}
+              title="Role"
+              onClick={() => setShowRoleMenu((v) => !v)}
+            >
+              <Briefcase size={13} />
+              <span>{roleDef ? roleDef.name : "Role"}</span>
+              <ChevronDown size={11} />
+            </button>
+            {showRoleMenu && (
+              <div className="agent-node__profile-menu nodrag">
+                <button
+                  type="button"
+                  className={`agent-node__profile-menu-item${!roleId ? " agent-node__profile-menu-item--active" : ""}`}
+                  onClick={() => {
+                    onSetRole(id, null);
+                    setShowRoleMenu(false);
+                  }}
+                >
+                  None (Standard Agent)
+                </button>
+                {listRoleDefinitions().map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    className={`agent-node__profile-menu-item${r.id === roleId ? " agent-node__profile-menu-item--active" : ""}`}
+                    onClick={() => {
+                      onSetRole(id, r.id);
+                      setShowRoleMenu(false);
+                    }}
+                  >
+                    {r.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {profiles.length > 1 && (
           <div className="agent-node__profile-picker">
             <button
@@ -270,7 +322,15 @@ export function AgentNode({
           </div>
         )}
       </NodeToolbar>
-      {showProfileMenu && <div className="popover-backdrop" onClick={() => setShowProfileMenu(false)} />}
+      {(showProfileMenu || showRoleMenu) && (
+        <div
+          className="popover-backdrop"
+          onClick={() => {
+            setShowProfileMenu(false);
+            setShowRoleMenu(false);
+          }}
+        />
+      )}
 
       <Handle type="target" position={Position.Top} />
 
@@ -290,6 +350,19 @@ export function AgentNode({
           {agentLabel}
           {currentProfile && currentProfile.id !== "" ? ` · ${currentProfile.label}` : ""}
         </span>
+
+        {roleDef && (
+          <span
+            className="agent-node__role-badge"
+            title={`${roleDef.name}: ${roleDef.description}`}
+            style={{
+              borderColor: roleDef.brandColor ? `${roleDef.brandColor}66` : undefined,
+              color: roleDef.brandColor || "#c4b5fd",
+            }}
+          >
+            Role: {roleDef.name}
+          </span>
+        )}
 
         {!isAvailable && data.agentType !== "bash" && (
           <span className="agent-node__unavailable-badge" title="Agent CLI is not installed or available on PATH">

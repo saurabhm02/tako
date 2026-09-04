@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, ChevronDown, Copy, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, Copy, Pencil, Plus, Trash2, Users, X } from "lucide-react";
 import type { WorkflowSummary } from "../../shared/types";
 
 interface WorkflowSwitcherProps {
@@ -8,6 +8,7 @@ interface WorkflowSwitcherProps {
   isDirty: boolean;
   onSwitch: (id: string) => void;
   onNew: (name: string) => void;
+  onNewTeam?: () => void;
   onSaveAs: (name: string) => void;
   onRename: (name: string) => void;
   onDelete: (id: string, name: string) => void;
@@ -30,6 +31,7 @@ export function WorkflowSwitcher({
   isDirty,
   onSwitch,
   onNew,
+  onNewTeam,
   onSaveAs,
   onRename,
   onDelete,
@@ -126,7 +128,10 @@ export function WorkflowSwitcher({
                           close();
                         }}
                       >
-                        <span className="workflow-switcher__item-name">{w.name}</span>
+                        <span className="workflow-switcher__item-name">
+                          {w.name}
+                          {w.workflowType === "team" && <span className="workflow-switcher__team-badge">Team</span>}
+                        </span>
                         {isActive && <Check size={14} className="workflow-switcher__item-check" />}
                       </button>
                     );
@@ -137,6 +142,20 @@ export function WorkflowSwitcher({
                     <Plus size={13} />
                     New
                   </button>
+                  {onNewTeam && (
+                    <button
+                      type="button"
+                      className="omni-btn-secondary"
+                      onClick={() => {
+                        onNewTeam();
+                        close();
+                      }}
+                      title="Create Team Workflow (PM → Architect → Reviewer)"
+                    >
+                      <Users size={13} />
+                      + Team
+                    </button>
+                  )}
                   <button type="button" className="omni-btn-secondary" onClick={() => startMode("save-as", `${activeName} copy`)}>
                     <Copy size={13} />
                     Save As

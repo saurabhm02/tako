@@ -49,6 +49,9 @@ interface CommandBarProps {
   onFitView?: () => void;
   onOpenHistory?: () => void;
   onOpenActivity?: () => void;
+  onSetRole?: (nodeId: string, roleId: string | null) => void;
+  onCreateTeamWorkflow?: (name?: string, goal?: string) => void;
+  onCreateManagerWorkflow?: (goal: string, name?: string, constraints?: string[]) => void;
   onClose?: () => void;
 }
 
@@ -76,6 +79,9 @@ export function CommandBar({
   onFitView,
   onOpenHistory,
   onOpenActivity,
+  onSetRole,
+  onCreateTeamWorkflow,
+  onCreateManagerWorkflow,
   onClose,
 }: CommandBarProps) {
   const [text, setText] = useState("");
@@ -277,6 +283,15 @@ export function CommandBar({
         return undefined;
       case "openActivity":
         onOpenActivity?.();
+        return undefined;
+      case "setRole":
+        onSetRole?.(action.nodeId, action.roleId);
+        return undefined;
+      case "createTeamWorkflow":
+        onCreateTeamWorkflow?.(action.name, action.goal);
+        return undefined;
+      case "createManagerWorkflow":
+        onCreateManagerWorkflow?.(action.goal, action.name, action.constraints);
         return undefined;
     }
   };

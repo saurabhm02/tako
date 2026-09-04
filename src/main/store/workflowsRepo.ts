@@ -29,6 +29,7 @@ interface NodeRow {
   config_json: string;
   position_x: number;
   position_y: number;
+  role_id: string | null;
 }
 
 interface ConnectionRow {
@@ -54,6 +55,7 @@ interface ConnectionRow {
 export function saveWorkflow(snapshot: WorkflowSnapshot): void {
   const db = getDatabase();
   const now = Date.now();
+  const workflowType = snapshot.workflowType ?? "canvas";
 
   const upsertWorkflow = db.transaction(() => {
     const existing = db
@@ -62,12 +64,12 @@ export function saveWorkflow(snapshot: WorkflowSnapshot): void {
 
     if (existing) {
       db.prepare(
-        "UPDATE workflows SET name = ?, updated_at = ? WHERE id = ?",
-      ).run(snapshot.name, now, snapshot.id);
+        "UPDATE workflows SET name = ?, workflow_type = ?, updated_at = ? WHERE id = ?",
+      ).run(snapshot.name, workflowType, now, snapshot.id);
     } else {
       db.prepare(
-        "INSERT INTO workflows (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)",
-      ).run(snapshot.id, snapshot.name, now, now);
+        "INSERT INTO workflows (id, name, workflow_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      ).run(snapshot.id, snapshot.name, workflowType, now, now);
     }
 
     const keepNodeIds = new Set(snapshot.nodes.map((n) => n.id));
@@ -87,14 +89,16 @@ export function saveWorkflow(snapshot: WorkflowSnapshot): void {
     }
 
     const upsertNode = db.prepare(
-      `INSERT INTO nodes (id, workflow_id, name, node_kind, agent_type, adapter_kind, working_directory, config_json, position_x, position_y)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO nodes (id, workflow_id, name, node_kind, agent_type, adapter_kind, working_directory, config_json, position_x, position_y, role_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name, node_kind = excluded.node_kind, agent_type = excluded.agent_type,
          adapter_kind = excluded.adapter_kind, working_directory = excluded.working_directory,
-         config_json = excluded.config_json, position_x = excluded.position_x, position_y = excluded.position_y`,
+         config_json = excluded.config_json, position_x = excluded.position_x, position_y = excluded.position_y,
+         role_id = excluded.role_id`,
     );
     for (const node of snapshot.nodes) {
+      const roleId = node.roleId ?? (typeof node.config?.roleId === "string" ? node.config.roleId : null);
       upsertNode.run(
         node.id,
         snapshot.id,
@@ -106,6 +110,7 @@ export function saveWorkflow(snapshot: WorkflowSnapshot): void {
         JSON.stringify(node.config ?? {}),
         node.position.x,
         node.position.y,
+        roleId,
       );
     }
 
@@ -133,8 +138,8 @@ export function loadWorkflow(id: string): WorkflowSnapshot | null {
   const db = getDatabase();
 
   const workflow = db
-    .prepare("SELECT id, name FROM workflows WHERE id = ?")
-    .get(id) as { id: string; name: string } | undefined;
+    .prepare("SELECT id, name, workflow_type FROM workflows WHERE id = ?")
+    .get(id) as { id: string; name: string; workflow_type?: string } | undefined;
 
   if (!workflow) return null;
 
@@ -149,16 +154,22 @@ export function loadWorkflow(id: string): WorkflowSnapshot | null {
   return {
     id: workflow.id,
     name: workflow.name,
-    nodes: nodeRows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      kind: row.node_kind as NodeKind,
-      agentType: row.agent_type,
-      adapterKind: row.adapter_kind as "terminal" | "session",
-      workingDirectory: row.working_directory,
-      config: JSON.parse(row.config_json) as Record<string, unknown>,
-      position: { x: row.position_x, y: row.position_y },
-    })),
+    workflowType: (workflow.workflow_type as "canvas" | "team") || "canvas",
+    nodes: nodeRows.map((row) => {
+      const config = JSON.parse(row.config_json) as Record<string, unknown>;
+      const roleId = row.role_id || (typeof config.roleId === "string" ? config.roleId : null);
+      return {
+        id: row.id,
+        name: row.name,
+        kind: row.node_kind as NodeKind,
+        agentType: row.agent_type,
+        adapterKind: row.adapter_kind as "terminal" | "session",
+        workingDirectory: row.working_directory,
+        config,
+        position: { x: row.position_x, y: row.position_y },
+        roleId,
+      };
+    }),
     connections: connectionRows.map((row) => ({
       id: row.id,
       fromNodeId: row.from_node_id,
@@ -170,9 +181,14 @@ export function loadWorkflow(id: string): WorkflowSnapshot | null {
 
 export function listWorkflows(): WorkflowSummary[] {
   const rows = getDatabase()
-    .prepare("SELECT id, name, updated_at FROM workflows ORDER BY updated_at DESC")
-    .all() as { id: string; name: string; updated_at: number }[];
-  return rows.map((row) => ({ id: row.id, name: row.name, updatedAt: row.updated_at }));
+    .prepare("SELECT id, name, workflow_type, updated_at FROM workflows ORDER BY updated_at DESC")
+    .all() as { id: string; name: string; workflow_type?: string; updated_at: number }[];
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    workflowType: (row.workflow_type as "canvas" | "team") || "canvas",
+    updatedAt: row.updated_at,
+  }));
 }
 
 export function renameWorkflow(id: string, name: string): void {
@@ -218,11 +234,13 @@ export function ensureNodeExists(input: {
   workingDirectory: string | null;
   config: Record<string, unknown>;
   position: { x: number; y: number };
+  roleId?: string | null;
 }): void {
+  const roleId = input.roleId ?? (typeof input.config?.roleId === "string" ? input.config.roleId : null);
   getDatabase()
     .prepare(
-      `INSERT INTO nodes (id, workflow_id, name, node_kind, agent_type, adapter_kind, working_directory, config_json, position_x, position_y)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO nodes (id, workflow_id, name, node_kind, agent_type, adapter_kind, working_directory, config_json, position_x, position_y, role_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO NOTHING`,
     )
     .run(
@@ -236,6 +254,7 @@ export function ensureNodeExists(input: {
       JSON.stringify(input.config ?? {}),
       input.position.x,
       input.position.y,
+      roleId,
     );
 }
 

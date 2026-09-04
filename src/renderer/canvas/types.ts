@@ -25,6 +25,7 @@ export interface AgentNodeData extends Record<string, unknown> {
   error: AdapterError | null;
   lastActivityAt: number | null;
   lastCodeChange: CodeChangeSummaryRow | null;
+  roleId?: string | null;
 }
 
 export interface NoteNodeData extends Record<string, unknown> {
@@ -259,6 +260,7 @@ export function nodeRecordToTakoNode(record: NodeRecord): TakoNode {
   }
   const savedWidth = record.config.width;
   const savedHeight = record.config.height;
+  const roleId = record.roleId ?? (typeof record.config.roleId === "string" ? record.config.roleId : null);
   return {
     id: record.id,
     type: "agentNode",
@@ -275,6 +277,7 @@ export function nodeRecordToTakoNode(record: NodeRecord): TakoNode {
       error: null,
       lastActivityAt: null,
       lastCodeChange: null,
+      roleId,
     },
   };
 }
@@ -316,6 +319,7 @@ export function takoNodeToNodeRecord(node: TakoNode): NodeRecord {
     };
   }
   const data = node.data as AgentNodeData;
+  const roleId = data.roleId ?? (typeof data.config.roleId === "string" ? data.config.roleId : null);
   return {
     id: node.id,
     name: data.name,
@@ -323,8 +327,10 @@ export function takoNodeToNodeRecord(node: TakoNode): NodeRecord {
     agentType: data.agentType,
     adapterKind: data.adapterKind,
     workingDirectory: data.workingDirectory,
+    roleId,
     config: {
       ...data.config,
+      ...(roleId ? { roleId } : {}),
       width: node.width ?? data.config.width ?? DEFAULT_AGENT_NODE_WIDTH,
       height: node.height ?? data.config.height ?? DEFAULT_AGENT_NODE_HEIGHT,
     },

@@ -41,7 +41,7 @@ function createWindow(): void {
     width: 1200,
     height: 800,
     title: "Tako",
-    icon: path.join(__dirname, "../../assets/icon.png"),
+    icon: path.join(__dirname, "../../assets/icon_macos.png"),
     backgroundColor: "#0b1020",
     // No separate native title bar row (that gray strip above the app's own
     // header) — traffic lights float over our own dark header instead, same
@@ -66,6 +66,13 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === "darwin" && app.dock) {
+    try {
+      app.dock.setIcon(path.join(__dirname, "../../assets/icon_macos.png"));
+    } catch {
+      // Best effort dock icon
+    }
+  }
   initDatabase(path.join(app.getPath("userData"), "tako.sqlite3"));
   // NodeManager's registry is provably empty right here — nothing has
   // registered a node yet this process — so any node_runs row still open

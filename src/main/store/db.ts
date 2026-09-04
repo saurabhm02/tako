@@ -9,6 +9,7 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS workflows (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    workflow_type TEXT NOT NULL DEFAULT 'canvas',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   );
@@ -25,7 +26,8 @@ const SCHEMA = `
     position_x REAL NOT NULL,
     position_y REAL NOT NULL,
     last_output_text TEXT NOT NULL DEFAULT '',
-    session_ref TEXT
+    session_ref TEXT,
+    role_id TEXT
   );
 
   CREATE TABLE IF NOT EXISTS connections (
@@ -161,6 +163,14 @@ function migrate(db: Database.Database): void {
   }
   if (!columns.includes("session_ref")) {
     db.exec("ALTER TABLE nodes ADD COLUMN session_ref TEXT");
+  }
+  if (!columns.includes("role_id")) {
+    db.exec("ALTER TABLE nodes ADD COLUMN role_id TEXT");
+  }
+
+  const wfColumns = (db.prepare("PRAGMA table_info(workflows)").all() as Array<{ name: string }>).map((c) => c.name);
+  if (!wfColumns.includes("workflow_type")) {
+    db.exec("ALTER TABLE workflows ADD COLUMN workflow_type TEXT NOT NULL DEFAULT 'canvas'");
   }
 }
 

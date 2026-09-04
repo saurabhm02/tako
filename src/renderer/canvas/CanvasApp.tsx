@@ -24,6 +24,7 @@ import {
   Trash2,
   Play,
   Square,
+  Users,
 } from "lucide-react";
 import "@xyflow/react/dist/style.css";
 import "./canvas.css";
@@ -44,6 +45,8 @@ import { cycleEdgeKeys, findCycles } from "../../shared/graph";
 import { validateWorkflow } from "../../shared/workflowValidation";
 import { WorkflowValidationDialog } from "./WorkflowValidationDialog";
 import { WorkflowSwitcher } from "./WorkflowSwitcher";
+import { createTeamWorkflowSnapshot } from "../../shared/team";
+import { generateManagerWorkflow } from "../../shared/manager";
 import {
   connectionRecordToTakoEdge,
   DEFAULT_AGENT_NODE_HEIGHT,
@@ -628,6 +631,41 @@ export function CanvasApp() {
     [nodes, stopRunningAgents, setActiveWorkflow, confirmDiscardUnsavedChanges, markSaved, resetWorkflowScopedUiState],
   );
 
+  const handleNewTeamWorkflow = useCallback(
+    async (name?: string, goal?: string) => {
+      if (!confirmDiscardUnsavedChanges()) return;
+      await stopRunningAgents(nodes);
+      const teamName = name?.trim() || "Product Delivery Team";
+      const teamSnapshot = createTeamWorkflowSnapshot(teamName, goal);
+      await window.tako.workflows.save(teamSnapshot);
+      setSelectedEdgeId(null);
+      const snapshot = await loadFromDisk(teamSnapshot.id);
+      setActiveWorkflow(teamSnapshot.id, snapshot?.name ?? teamName);
+      resetWorkflowScopedUiState();
+      requestAnimationFrame(() => reactFlowRef.current?.fitView({ padding: 0.3, duration: 300 }));
+    },
+    [nodes, stopRunningAgents, confirmDiscardUnsavedChanges, loadFromDisk, setActiveWorkflow, resetWorkflowScopedUiState],
+  );
+
+  const handleNewManagerWorkflow = useCallback(
+    async (goal: string, name?: string, constraints?: string[]) => {
+      if (!confirmDiscardUnsavedChanges()) return;
+      await stopRunningAgents(nodes);
+      const snapshot = generateManagerWorkflow({
+        goal,
+        name,
+        constraints,
+      });
+      await window.tako.workflows.save(snapshot);
+      setSelectedEdgeId(null);
+      const loaded = await loadFromDisk(snapshot.id);
+      setActiveWorkflow(snapshot.id, loaded?.name ?? snapshot.name);
+      resetWorkflowScopedUiState();
+      requestAnimationFrame(() => reactFlowRef.current?.fitView({ padding: 0.3, duration: 300 }));
+    },
+    [nodes, stopRunningAgents, confirmDiscardUnsavedChanges, loadFromDisk, setActiveWorkflow, resetWorkflowScopedUiState],
+  );
+
   // Duplicates the CURRENT canvas under a new saved identity, then switches
   // to it — matching native "Save As" (you end up editing the new file, the
   // original is left exactly as it was on disk). Safe to jump straight to
@@ -855,6 +893,12 @@ export function CanvasApp() {
     );
   }, []);
 
+  const handleSetRole = useCallback((nodeId: string, roleId: string | null) => {
+    setNodes((current) =>
+      current.map((n) => (n.id === nodeId && isAgentNode(n) ? { ...n, data: { ...n.data, roleId } } : n)),
+    );
+  }, []);
+
   const handleDuplicateNode = useCallback(
     (nodeId: string) => {
       const source = nodes.find((n) => n.id === nodeId);
@@ -1063,6 +1107,7 @@ export function CanvasApp() {
     handleRetryNode,
     handleDuplicateNode,
     handleSetTaskPrompt,
+    handleSetRole,
   });
   latestRef.current = {
     nodes,
@@ -1082,6 +1127,7 @@ export function CanvasApp() {
     handleRetryNode,
     handleDuplicateNode,
     handleSetTaskPrompt,
+    handleSetRole,
   };
 
   const nodeTypes = useMemo(
@@ -1096,6 +1142,7 @@ export function CanvasApp() {
           handleRetryNode,
           handleDuplicateNode,
           handleSetTaskPrompt,
+          handleSetRole,
           handleSetWorkingDirectory,
           handleSetProfile,
           handleReviewHandoffs,
@@ -1119,6 +1166,7 @@ export function CanvasApp() {
             onRetry={handleRetryNode}
             onDuplicate={handleDuplicateNode}
             onSetTaskPrompt={handleSetTaskPrompt}
+            onSetRole={handleSetRole}
             onSetWorkingDirectory={handleSetWorkingDirectory}
             onSetProfile={handleSetProfile}
             onReviewHandoffs={handleReviewHandoffs}
@@ -1395,6 +1443,7 @@ export function CanvasApp() {
           isDirty={isDirty}
           onSwitch={(id) => void handleSwitchWorkflow(id)}
           onNew={(name) => void handleNewWorkflow(name)}
+          onNewTeam={() => void handleNewTeamWorkflow()}
           onSaveAs={(name) => void handleSaveAs(name)}
           onRename={(name) => void handleRenameWorkflow(name)}
           onDelete={(id, name) => void handleDeleteWorkflow(id, name)}
@@ -1437,15 +1486,26 @@ export function CanvasApp() {
             <div className="canvas-empty-state">
               <Plus size={22} strokeWidth={1.5} />
               <p>Build your AI workspace</p>
-              <span>Add an agent, connect your workers, and let Tako handle the handoff.</span>
-              <button
-                type="button"
-                className="canvas-empty-state__cta"
-                onClick={() => setShowAddNode(true)}
-              >
-                <Plus size={14} strokeWidth={2} />
-                Add agent
-              </button>
+              <span>Add an agent, connect your workers, or start with a team workflow.</span>
+              <div className="canvas-empty-state__actions" style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+                <button
+                  type="button"
+                  className="canvas-empty-state__cta"
+                  onClick={() => setShowAddNode(true)}
+                >
+                  <Plus size={14} strokeWidth={2} />
+                  Add agent
+                </button>
+                <button
+                  type="button"
+                  className="canvas-empty-state__cta"
+                  style={{ background: "rgba(99, 102, 241, 0.15)", borderColor: "rgba(99, 102, 241, 0.4)", color: "#a5b4fc" }}
+                  onClick={() => void handleNewTeamWorkflow()}
+                >
+                  <Users size={14} strokeWidth={2} />
+                  Team workflow
+                </button>
+              </div>
             </div>
           )}
           {cyclesInGraph.length > 0 && (
@@ -1532,6 +1592,9 @@ export function CanvasApp() {
         onFitView={() => reactFlowRef.current?.fitView({ duration: 300, padding: 0.3 })}
         onOpenHistory={() => setShowHistory(true)}
         onOpenActivity={() => setShowActivity(true)}
+        onSetRole={handleSetRole}
+        onCreateTeamWorkflow={(name, goal) => void handleNewTeamWorkflow(name, goal)}
+        onCreateManagerWorkflow={(goal, name, constraints) => void handleNewManagerWorkflow(goal, name, constraints)}
       />
 
       {showAddNode && <div className="popover-backdrop" onClick={() => setShowAddNode(false)} />}

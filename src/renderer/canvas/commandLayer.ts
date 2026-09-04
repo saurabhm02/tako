@@ -1,6 +1,7 @@
 import { isAgentNode, type TakoEdge, type TakoNode } from "./types";
 import type { AdapterKind, AdapterManifestSummary, AgentProfile, CanvasAction, CanvasCommandContext, CanvasQuery } from "../../shared/types";
 import { statusBucket, STATUS_BUCKET_LABEL, type StatusBucket } from "./overviewFilters";
+import { getRoleDefinition } from "../../shared/roles";
 
 export type { CanvasAction };
 
@@ -89,7 +90,64 @@ function cleanName(raw?: string): string | undefined {
   return trimmed || undefined;
 }
 
+export function normalizeRoleId(raw?: string): string | null {
+  if (!raw) return null;
+  const clean = raw.trim().toLowerCase().replace(/^["']|["']$/g, "").replace(/\s+role$/i, "").trim();
+  if (clean === "none" || clean === "clear" || clean === "null" || clean === "remove" || clean === "") return null;
+  if (clean === "manager" || clean === "engineering manager" || clean === "lead" || clean === "em") {
+    return "manager";
+  }
+  if (clean === "product manager" || clean === "pm" || clean === "product-manager" || clean === "product_manager") {
+    return "product-manager";
+  }
+  if (
+    clean === "software architect" ||
+    clean === "architect" ||
+    clean === "software-architect" ||
+    clean === "software_architect" ||
+    clean === "lead architect"
+  ) {
+    return "software-architect";
+  }
+  if (clean === "reviewer" || clean === "code reviewer" || clean === "code-reviewer" || clean === "qa") {
+    return "reviewer";
+  }
+  return clean;
+}
+
 const PATTERNS: Array<{ re: RegExp; build: (m: RegExpMatchArray) => CanvasAction }> = [
+  {
+    re: /^(?:create|generate|plan)\s+(?:a\s+)?manager(?:\s+workflow)?(?:\s+(?:called|named)\s+["']?([^"']+)["']?)?(?:\s+(?:with\s+goal|for|to)\s+(.+))$/i,
+    build: (m) => ({ type: "createManagerWorkflow", name: cleanName(m[1]), goal: (m[2] || "").trim() }),
+  },
+  {
+    re: /^(?:create|generate)\s+(?:a\s+)?workflow\s+(?:to|for)\s+(.+)$/i,
+    build: (m) => ({ type: "createManagerWorkflow", goal: m[1].trim() }),
+  },
+  {
+    re: /^plan(?:\s+workflow)?\s+(?:to\s+|for\s+)?(.+)$/i,
+    build: (m) => ({ type: "createManagerWorkflow", goal: m[1].trim() }),
+  },
+  {
+    re: /^(?:create|new)\s+(?:a\s+)?team(?:\s+workflow)?(?:\s+(?:called|named)\s+["']?([^"']+)["']?)?(?:\s+(?:with\s+goal|for|to)\s+(.+))?$/i,
+    build: (m) => ({ type: "createTeamWorkflow", name: cleanName(m[1]), goal: m[2]?.trim() }),
+  },
+  {
+    re: /^set\s+role\s+(?:to\s+)?(.+?)\s+(?:on|for)\s+(.+)$/i,
+    build: (m) => ({ type: "setRole", nodeRef: normalizeRef(m[2]), roleId: normalizeRoleId(m[1]) }),
+  },
+  {
+    re: /^assign\s+(?:role\s+)?(.+?)\s+to\s+(.+)$/i,
+    build: (m) => ({ type: "setRole", nodeRef: normalizeRef(m[2]), roleId: normalizeRoleId(m[1]) }),
+  },
+  {
+    re: /^(?:clear|remove)\s+role\s+(?:on|from)\s+(.+)$/i,
+    build: (m) => ({ type: "setRole", nodeRef: normalizeRef(m[1]), roleId: null }),
+  },
+  {
+    re: /^make\s+(.+?)\s+(?:a|an)\s+(manager|product\s+manager|software\s+architect|reviewer|pm|architect|lead)$/i,
+    build: (m) => ({ type: "setRole", nodeRef: normalizeRef(m[1]), roleId: normalizeRoleId(m[2]) }),
+  },
   {
     re: /^(?:add|create)\s+(?:(?:an?|the)\s+agent\s+(?:called|named)\s+)?(.+?)\s+(?:using|with|as)\s+(?:an?\s+)?(.+?)(?:\s+agent)?$/i,
     build: (m) => ({ type: "addNode", agentType: m[2].trim(), name: cleanName(m[1]) }),
@@ -228,7 +286,10 @@ export type ResolvedAction =
   | { kind: "fitView" }
   | { kind: "openHistory" }
   | { kind: "openActivity" }
-  | { kind: "changeAgentType"; nodeId: string; agentType: string; adapterKind: AdapterKind };
+  | { kind: "changeAgentType"; nodeId: string; agentType: string; adapterKind: AdapterKind }
+  | { kind: "createTeamWorkflow"; name?: string; goal?: string }
+  | { kind: "createManagerWorkflow"; name?: string; goal: string; constraints?: string[] }
+  | { kind: "setRole"; nodeId: string; roleId: string | null };
 
 export interface ResolveOk {
   ok: true;
@@ -556,6 +617,42 @@ export function resolveAction(action: CanvasAction, ctx: ResolveContext): Resolv
         destructive: false,
       };
     }
+    case "createTeamWorkflow": {
+      const teamName = action.name?.trim() || "Product Delivery Team";
+      return {
+        ok: true,
+        action: { kind: "createTeamWorkflow", name: teamName, goal: action.goal },
+        description: `Create team workflow "${teamName}"${action.goal ? ` with goal "${action.goal}"` : ""}.`,
+        destructive: false,
+      };
+    }
+    case "createManagerWorkflow": {
+      const goal = action.goal?.trim();
+      if (!goal) return { ok: false, description: "Please provide a goal for the workflow." };
+      const teamName = action.name?.trim() || `Team: ${goal.slice(0, 32)}${goal.length > 32 ? "..." : ""}`;
+      return {
+        ok: true,
+        action: { kind: "createManagerWorkflow", name: teamName, goal, constraints: action.constraints },
+        description: `Generate manager workflow for "${goal}".`,
+        destructive: false,
+      };
+    }
+    case "setRole": {
+      const found = resolveNode(ctx.nodes, action.nodeRef, ctx.selectedNodeId);
+      if (!found.ok) return found;
+      const roleDef = action.roleId ? getRoleDefinition(action.roleId) : null;
+      if (action.roleId && !roleDef) {
+        return { ok: false, description: `Unknown role "${action.roleId}". Valid roles: manager, product-manager, software-architect, reviewer.` };
+      }
+      return {
+        ok: true,
+        action: { kind: "setRole", nodeId: found.node.id, roleId: action.roleId },
+        description: action.roleId
+          ? `Set role "${roleDef?.name || action.roleId}" on "${found.node.data.name}".`
+          : `Clear role on "${found.node.data.name}".`,
+        destructive: false,
+      };
+    }
   }
 }
 
@@ -631,6 +728,7 @@ export function substituteTempIds(action: ResolvedAction, tempIdToRealId: Readon
     case "restartNode":
     case "markDone":
     case "changeAgentType":
+    case "setRole":
       return { ...action, nodeId: real(action.nodeId) };
     case "retryNode":
       return action.nodeId ? { ...action, nodeId: real(action.nodeId) } : action;
@@ -645,6 +743,8 @@ export function substituteTempIds(action: ResolvedAction, tempIdToRealId: Readon
     case "fitView":
     case "openHistory":
     case "openActivity":
+    case "createTeamWorkflow":
+    case "createManagerWorkflow":
       return action;
   }
 }
@@ -669,6 +769,7 @@ export function referencesUnresolvedTempNode(action: ResolvedAction): boolean {
     case "restartNode":
     case "markDone":
     case "changeAgentType":
+    case "setRole":
       return isTemp(action.nodeId);
     case "retryNode":
       return Boolean(action.nodeId && isTemp(action.nodeId));

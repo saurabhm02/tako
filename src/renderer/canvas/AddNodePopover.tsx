@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, Folder, Loader2, StickyNote, X } from "lucide-react";
+import { Briefcase, ChevronLeft, Folder, Loader2, StickyNote, X } from "lucide-react";
 import { DEFAULT_OMNI_ACCENT_COLOR, getAgentAccentColor, getAgentIcon, isAgentNode, type TakoNode } from "./types";
+import { listRoleDefinitions } from "../../shared/roles";
 import type { AdapterKind, AdapterManifestSummary, NodeKind } from "../../shared/types";
 
 export interface CreatableNodeItem {
@@ -12,6 +13,7 @@ export interface CreatableNodeItem {
   adapterKind: AdapterKind;
   workingDirectoryRequired: boolean;
   brandColor: string;
+  roleId?: string | null;
 }
 
 export interface RawNodeItemInput {
@@ -24,6 +26,7 @@ export interface RawNodeItemInput {
   shortcut?: string;
   order?: number;
   brandColor?: string;
+  roleId?: string | null;
 }
 
 /**
@@ -41,9 +44,7 @@ export interface RawNodeItemInput {
  *     { id: "note", name: "Note", shortcut: "N", kind: "note", ... }
  *   ]
  */
-export function buildCreatableNodeList(
-  manifest: AdapterManifestSummary[],
-): CreatableNodeItem[] {
+export function buildCreatableNodeList(manifest: AdapterManifestSummary[]): CreatableNodeItem[] {
   const availableManifest = manifest.filter((m) => m.installed || m.agentType === "bash");
 
   const adapterItems: RawNodeItemInput[] = availableManifest.map((m) => ({
@@ -54,7 +55,7 @@ export function buildCreatableNodeList(
     adapterKind: m.kind,
     workingDirectoryRequired: m.workingDirectoryRequired,
     shortcut: m.shortcut,
-    order: m.order,
+    order: m.order ?? 100,
     brandColor: getAgentAccentColor(m.agentType, m.brandColor),
   }));
 
@@ -238,6 +239,8 @@ interface AddNodePopoverProps {
     agentType: string;
     adapterKind: AdapterKind;
     workingDirectory: string | null;
+    roleId?: string | null;
+    config?: Record<string, unknown>;
   }) => void;
   onClose: () => void;
 }
@@ -319,7 +322,7 @@ export function AddNodePopover({ onCreate, onClose }: AddNodePopoverProps) {
     }
 
     setSelectedAgent(item);
-    setAgentName(randomName());
+    setAgentName(item.roleId ? item.name : randomName());
     setWorkingDirectory(null);
     setError(null);
     setStep("config");
@@ -385,6 +388,8 @@ export function AddNodePopover({ onCreate, onClose }: AddNodePopoverProps) {
       agentType: selectedAgent.agentType,
       adapterKind: selectedAgent.adapterKind,
       workingDirectory,
+      roleId: selectedAgent.roleId ?? null,
+      config: selectedAgent.roleId ? { roleId: selectedAgent.roleId } : undefined,
     });
     onClose();
   };
@@ -410,7 +415,7 @@ export function AddNodePopover({ onCreate, onClose }: AddNodePopoverProps) {
               {fetchError && <p className="omni-field-error">{fetchError}</p>}
               <div className="add-node-popover__grid" role="grid" aria-label="Available node types">
                 {items.map((item) => {
-                  const Icon = item.kind === "note" ? StickyNote : getAgentIcon(item.agentType);
+                  const Icon = item.kind === "note" ? StickyNote : item.roleId ? Briefcase : getAgentIcon(item.agentType);
                   return (
                     <button
                       key={item.id}
