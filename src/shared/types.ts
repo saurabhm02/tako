@@ -21,6 +21,7 @@ export interface NodeRecord {
   workingDirectory: string | null;
   config: Record<string, unknown>;
   position: { x: number; y: number };
+  roleId?: string | null;
 }
 
 export interface ConnectionRecord {
@@ -35,6 +36,8 @@ export interface WorkflowSnapshot {
   name: string;
   nodes: NodeRecord[];
   connections: ConnectionRecord[];
+  workflowType?: "canvas" | "team";
+  metadata?: Record<string, unknown>;
 }
 
 // Lightweight row for the workflow picker — never carries nodes/connections,
@@ -43,6 +46,7 @@ export interface WorkflowSummary {
   id: string;
   name: string;
   updatedAt: number;
+  workflowType?: "canvas" | "team";
 }
 
 // First-launch bootstrap identity — still real, still just one workflow
@@ -243,6 +247,9 @@ export type CanvasAction =
   // agent type/working directory/config copied from the source node
   // instead of asked for.
   | { type: "duplicateNode"; nodeRef: string; name?: string }
+  | { type: "createTeamWorkflow"; name?: string; goal?: string }
+  | { type: "createManagerWorkflow"; name?: string; goal: string; constraints?: string[] }
+  | { type: "setRole"; nodeRef: string; roleId: string | null }
   | { type: "fitView" }
   | { type: "openHistory" }
   | { type: "openActivity" };
@@ -405,3 +412,6 @@ export interface TakoBridge {
 }
 
 export * from "./runtimeTypes";
+export * from "./roles";
+export * from "./harness";
+export * from "./team";
