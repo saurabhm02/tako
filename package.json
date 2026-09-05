@@ -14,7 +14,9 @@
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.6.1",
+    "@electron-forge/maker-dmg": "^7.11.2",
     "@electron-forge/maker-zip": "^7.6.1",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.11.2",
     "@electron-forge/plugin-vite": "^7.6.1",
     "@types/better-sqlite3": "^7.6.12",
     "@types/bun": "^1.4.0",
@@ -43,6 +45,8 @@
     "electron",
     "better-sqlite3",
     "esbuild",
-    "node-pty"
+    "node-pty",
+    "fs-xattr",
+    "macos-alias"
   ]
 }
